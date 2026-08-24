@@ -38,8 +38,9 @@ Optional environment variables: `PUMPWATCH_DB` (database path),
 Copy `regions.json.example` to `regions.json` to poll several regions in rotation.
 
 ```bash
-python3 scripts/test_collector.py   # unit tests, no network needed
-python3 scripts/stats.py            # rows collected, coverage, top brands
+python3 scripts/test_collector.py            # collector tests, no network needed
+.venv/bin/python scripts/test_dump_import.py # importer tests, no dump needed
+python3 scripts/stats.py                     # rows collected, coverage, top brands
 ```
 
 ## Running it permanently
@@ -56,6 +57,30 @@ python scripts\run_collector.py
 Register it as a service (NSSM or Task Scheduler with "run whether user is logged on or
 not") so it restarts after a reboot. `poll_log` records every gap, so downtime stays
 visible in the analysis instead of masquerading as an absence of price changes.
+
+## Importing the historical dump
+
+The MTS-K archive ships as one CSV per day under `prices/YYYY/MM/`, each row a single
+price change with a second-resolution timestamp. Converting it to partitioned Parquet
+makes it queryable on a laptop:
+
+```bash
+.venv/bin/python scripts/import_dump.py --source ~/tankerkoenig-data --out data/parquet
+```
+
+The importer is incremental (already-converted months are skipped), stops before the
+disk fills, and normalises two things that otherwise corrupt the analysis:
+
+- **Timestamps carry an offset** (`+01` in winter, `+02` in summer). Reading them as UTC
+  shifts every summer observation one hour earlier, which would smear the daily price
+  cycle exactly where it matters. Each row therefore also stores `local_time`,
+  `local_hour`, `local_minute` and `local_dow` in `Europe/Berlin`.
+- **A price of `0.000` means the station does not sell that fuel**, not that it is free.
+  Those become NULL. On the test fixture, counting them as zero drags the mean E10 price
+  from 161.4 down to 129.1 cents.
+
+Prices are stored as integer tenths of a cent, matching the collector, so both sources
+can be queried together.
 
 ## Data model
 
