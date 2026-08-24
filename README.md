@@ -1,107 +1,128 @@
 # pumpwatch
 
-Measuring how German fuel retailers actually set their prices, using a self-collected
-minute-resolution dataset of every filling station within 25 km of Werder (Havel).
+An empirical study of how German fuel retailers actually set their prices, built on a
+dataset I collect myself at minute resolution for every filling station within 25 km of
+Werder (Havel).
+
+Fuel prices in Germany move several times a day in a pattern that looks coordinated
+without anyone being allowed to coordinate. The question is whether that pattern survives
+contact with data: who moves first, how fast the others follow, and whether any of it is
+worth anything to a driver deciding when to fill up.
 
 ## Research questions
 
-1. **Price cycles** — how many times per day does a station move its price, and how
-   regular are the daily peaks and troughs (Edgeworth cycles)?
-2. **Price leadership** — when a price falls, which brand moves first, and how many
-   minutes pass before competitors follow? Ordering plus lag is the empirical signature
-   of tacit coordination.
-3. **Competition and price level** — does a station's price depend on how many rivals
-   sit within 1, 3 and 5 km of it?
-4. **The payoff** — what does an optimal refuelling time save a normal driver per year,
-   and how much of that survives once you account for the detour?
+1. **Price cycles.** How many times a day does a station change its price, and how regular
+   are the daily peaks and troughs? This is the empirical shape of an Edgeworth cycle.
+2. **Price leadership.** When a price falls, which brand moves first, and how many minutes
+   pass before competitors follow? The ordering plus the lag is the observable signature of
+   tacit coordination.
+3. **Competition and price level.** Does a station's price depend on how many rivals sit
+   within 1, 3 and 5 km of it?
+4. **The payoff.** What does an optimal refuelling time save a normal driver over a year,
+   and how much of that survives once the detour is priced in?
 
 ## Why the data is collected rather than downloaded
 
-Tankerkönig publishes a historical dump of all MTS-K price changes since 2014, but the
-git repository behind it now requires a verified account. The live API is open with a
-free key at one request per minute, and one request returns every station within a 25 km
-radius. Polling that endpoint once a minute therefore yields the same substance at full
-temporal resolution for the chosen region, and the dataset is genuinely first-hand.
+Tankerkönig publishes a historical archive of every MTS-K price change since 2014, but the
+repository behind it now requires a verified account. The live API, by contrast, is open
+with a free key at one request per minute, and a single request returns every station
+inside a radius. Polling that endpoint once a minute yields the same substance at full
+temporal resolution for the chosen region, and the resulting dataset is genuinely first
+hand. Both paths are implemented, so the archive can be folded in if access ever comes
+through.
+
+## Design decisions that matter
+
+**Store changes, not snapshots.** Writing every station every minute would produce roughly
+430,000 rows a day for this region. Writing a row only when a price or the open state
+actually changes brings that down to a few thousand, which is the same compression the
+MTS-K applies internally, with no loss of information.
+
+**Prices as integer tenths of a cent.** A price of 1.719 euro is stored as `1719`. Change
+detection is then exact equality rather than a float comparison with a tolerance that
+would either miss real changes or invent them.
+
+**Log every poll, including the failures.** `poll_log` records duration, station count and
+any error for every single request. Downtime that is not recorded does not vanish from the
+analysis, it silently becomes an absence of price changes, and any study that ignores it
+will understate volatility. Making gaps auditable is the difference between a dataset and
+a pile of rows.
+
+**No third party dependencies in the collector.** It uses only the Python standard library,
+because it is meant to run unattended for a year on an always on machine and a dependency
+that breaks in month seven costs more than the convenience was ever worth.
+
+**Two gotchas in the historical archive**, both of which corrupt the analysis silently:
+
+* Timestamps carry an offset, `+01` in winter and `+02` in summer. Read as UTC, every
+  summer observation shifts an hour earlier and smears the daily cycle exactly where the
+  cycle is the object of study. Every row therefore also stores `local_time`, `local_hour`,
+  `local_minute` and `local_dow` in `Europe/Berlin`.
+* A price of `0.000` means the station does not sell that fuel, not that it is free. On the
+  test fixture, treating those as zero drags the mean E10 price from 161.4 cents down to
+  129.1.
+
+## Data model
+
+| Table | Contents |
+|:---|:---|
+| `stations` | Master data per station, plus the first and last time it was seen |
+| `price_changes` | One row only when a price or the open state changes |
+| `poll_log` | Every request, with duration, station count and any error |
+
+A closed station reports no prices at all, so its last known prices are carried forward
+rather than written as nulls, which would otherwise read as a price collapse every night.
 
 ## Setup
 
 ```bash
-export TANKERKOENIG_API_KEY=<your key from https://onboarding.tankerkoenig.de>
+export TANKERKOENIG_API_KEY=<free key from https://onboarding.tankerkoenig.de>
 python3 scripts/run_collector.py
 ```
 
-No third-party dependencies: the collector uses only the Python standard library, so it
-survives a year of unattended running without a dependency breaking under it.
-
-Optional environment variables: `PUMPWATCH_DB` (database path),
-`PUMPWATCH_INTERVAL` (seconds between requests, floored at 60).
-Copy `regions.json.example` to `regions.json` to poll several regions in rotation.
+Optional: `PUMPWATCH_DB` for the database path, `PUMPWATCH_INTERVAL` for the polling
+interval in seconds (floored at 60, which is the API limit). Copy `regions.json.example`
+to `regions.json` to rotate across several regions.
 
 ```bash
-python3 scripts/test_collector.py            # collector tests, no network needed
-.venv/bin/python scripts/test_dump_import.py # importer tests, no dump needed
-python3 scripts/stats.py                     # rows collected, coverage, top brands
+python3 scripts/test_collector.py             # collector tests, no network needed
+python3 scripts/test_dump_import.py           # importer tests, no archive needed
+python3 scripts/stats.py                      # rows collected, coverage, top brands
 ```
 
 ## Running it permanently
 
-The collector is meant to live on an always-on machine, not a laptop:
+The collector belongs on a machine that stays on, not a laptop that sleeps. Clone it there,
+set the key in the environment, and register it as a service so it comes back after a
+reboot. Because gaps are logged rather than hidden, an imperfect uptime is a known quantity
+in the analysis instead of a silent bias.
+
+## Importing the historical archive
+
+The MTS-K archive ships one CSV per day, each row a single price change at second
+resolution. The importer converts it to partitioned Parquet, which is what makes a decade
+of national price changes queryable on a laptop:
 
 ```bash
-ssh leon@192.168.178.20
-git clone <repo> pumpwatch && cd pumpwatch
-setx TANKERKOENIG_API_KEY <key>
-python scripts\run_collector.py
+python3 scripts/import_dump.py --source ~/tankerkoenig-data --out data/parquet
 ```
 
-Register it as a service (NSSM or Task Scheduler with "run whether user is logged on or
-not") so it restarts after a reboot. `poll_log` records every gap, so downtime stays
-visible in the analysis instead of masquerading as an absence of price changes.
+It is incremental, skips months that are already converted, and stops before it fills the
+disk. Output uses the same integer tenths of a cent as the collector, so both sources can
+be queried in one statement.
 
-## Importing the historical dump
+## Status
 
-The MTS-K archive ships as one CSV per day under `prices/YYYY/MM/`, each row a single
-price change with a second-resolution timestamp. Converting it to partitioned Parquet
-makes it queryable on a laptop:
-
-```bash
-.venv/bin/python scripts/import_dump.py --source ~/tankerkoenig-data --out data/parquet
-```
-
-The importer is incremental (already-converted months are skipped), stops before the
-disk fills, and normalises two things that otherwise corrupt the analysis:
-
-- **Timestamps carry an offset** (`+01` in winter, `+02` in summer). Reading them as UTC
-  shifts every summer observation one hour earlier, which would smear the daily price
-  cycle exactly where it matters. Each row therefore also stores `local_time`,
-  `local_hour`, `local_minute` and `local_dow` in `Europe/Berlin`.
-- **A price of `0.000` means the station does not sell that fuel**, not that it is free.
-  Those become NULL. On the test fixture, counting them as zero drags the mean E10 price
-  from 161.4 down to 129.1 cents.
-
-Prices are stored as integer tenths of a cent, matching the collector, so both sources
-can be queried together.
-
-## Data model
-
-| table | contents |
-|---|---|
-| `stations` | master data per station, plus first and last time it was seen |
-| `price_changes` | one row **only when a price or the open/closed state changes** |
-| `poll_log` | every request with duration, station count and any error |
-
-Prices are stored as integer tenths of a cent (1.719 € becomes `1719`), which keeps
-change detection exact instead of relying on float comparison. A closed station reports
-no prices, so its last known prices are carried forward rather than written as nulls.
-
-Storing changes rather than snapshots keeps roughly 430,000 daily readings down to a few
-thousand rows a day, which is the same compression the MTS-K itself applies.
-
-`poll_log` exists so that data quality is auditable. Any analysis that ignores collector
-downtime will systematically understate price volatility.
+The collector and the importer are written and tested. Continuous collection is running;
+the analysis in question one onward needs several weeks of accumulated data before it says
+anything, which is the nature of the object being studied.
 
 ## Attribution
 
 Price data originates from the Markttransparenzstelle für Kraftstoffe (MTS-K) and is
-provided by Tankerkönig under CC BY 4.0. Any published chart or text must carry that
+provided by Tankerkönig under CC BY 4.0. Any published chart or claim carries that
 attribution.
+
+## License
+
+MIT for the code. The data carries the attribution above.
