@@ -90,6 +90,40 @@ python3 scripts/test_dump_import.py           # importer tests, no archive neede
 python3 scripts/stats.py                      # rows collected, coverage, top brands
 ```
 
+## Running it in Supabase instead
+
+The collector can live in Postgres rather than on a local machine, which matters once a
+front end needs to read the data: a SQLite file behind a home router is unreachable, a
+Supabase table is not.
+
+Apply in order from the SQL editor:
+
+| file | contents |
+|---|---|
+| `supabase/001_schema.sql` | tables, indexes, row level security |
+| `supabase/002_ingest.sql` | JSON parsing and change detection |
+| `supabase/003_collector.sql` | pg_net request cycle, response pruning |
+| `supabase/004_schedule.sql` | the API key and the two cron jobs |
+
+`pg_cron` fires `collect_prices()` every minute. Because `pg_net` is asynchronous, each
+run first ingests the response to the *previous* request and then issues the next one,
+so the response is always a minute old and always there.
+
+Two things keep this inside the free tier:
+
+- **`net._http_response` must be pruned.** Every reply is stored, and at roughly 25 KB a
+  minute that is about 36 MB a day. Unpruned it fills the 500 MB free database in under a
+  fortnight. `prune_http_responses()` runs every ten minutes and keeps it near zero.
+- **Only changes are stored.** Around 500 changed rows a day plus the poll log works out
+  near 80 MB a year. Storing every reading instead would be 115,200 rows a day.
+
+Run `supabase/test_ingest.sql` against any Postgres to check the ingest logic; it needs
+neither pg_net nor pg_cron.
+
+**Only one collector may run at a time.** The API allows one request per minute in total,
+so running the Python daemon and the Supabase job together doubles the rate and gets the
+key suspended.
+
 ## Running it permanently
 
 The collector belongs on a machine that stays on, not a laptop that sleeps. Clone it there,
