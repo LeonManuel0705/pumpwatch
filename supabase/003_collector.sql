@@ -58,8 +58,18 @@ begin
 end;
 $$;
 
-create or replace function public.prune_http_responses()
-returns void language sql security definer set search_path = net as $$
-    delete from net._http_response
-    where created < now() - interval '10 minutes';
+create or replace function public.prune_http_responses(p_keep interval default '10 minutes')
+returns integer language plpgsql security definer set search_path = '' as $$
+declare
+    v_deleted integer := 0;
+begin
+    delete from net._http_response where created < now() - p_keep;
+    get diagnostics v_deleted = row_count;
+    return v_deleted;
+exception
+    when insufficient_privilege or undefined_table then
+        insert into public.poll_log (region, ok, error)
+        values ('prune', false, 'cannot delete from net._http_response: ' || sqlerrm);
+        return 0;
+end;
 $$;

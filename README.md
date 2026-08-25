@@ -111,14 +111,20 @@ so the response is always a minute old and always there.
 
 Two things keep this inside the free tier:
 
-- **`net._http_response` must be pruned.** Every reply is stored, and at roughly 25 KB a
-  minute that is about 36 MB a day. Unpruned it fills the 500 MB free database in under a
-  fortnight. `prune_http_responses()` runs every ten minutes and keeps it near zero.
+- **`net._http_response` is kept small.** pg_net stores every reply and expires it after
+  its own six hour TTL, which at one request a minute is a steady ~9 MB. That TTL has
+  been reported to miss rows, and `alter system set pg_net.ttl` needs superuser rights
+  that a hosted project does not grant, so `prune_http_responses()` runs every ten
+  minutes as a backstop. It returns the number of rows deleted, and if the table is
+  unreachable it records that in `poll_log` rather than raising, so one permission
+  problem cannot leave the cron job failing silently forever.
 - **Only changes are stored.** Around 500 changed rows a day plus the poll log works out
   near 80 MB a year. Storing every reading instead would be 115,200 rows a day.
 
-Run `supabase/test_ingest.sql` against any Postgres to check the ingest logic; it needs
-neither pg_net nor pg_cron.
+Run `supabase/test_ingest.sql` and `supabase/test_prune.sql` against any Postgres to
+check the ingest and pruning logic; neither needs pg_net or pg_cron. Once the job is
+live, `select * from collector_health` shows the last success, polls in the past hour,
+recent failures and the table size in one row.
 
 **Only one collector may run at a time.** The API allows one request per minute in total,
 so running the Python daemon and the Supabase job together doubles the rate and gets the

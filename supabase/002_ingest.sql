@@ -91,3 +91,17 @@ begin
     return v_changes;
 end;
 $$;
+
+create or replace view public.collector_health as
+with recent as (
+    select * from public.poll_log where started_at > now() - interval '24 hours'
+)
+select
+    (select max(started_at) from recent where ok)                            as last_success,
+    (select count(*) from recent where started_at > now() - interval '1 hour') as polls_last_hour,
+    (select count(*) from recent where ok = false)                            as failures_24h,
+    (select error from recent where ok = false order by started_at desc limit 1) as last_error,
+    (select count(*) from public.price_changes
+      where observed_at > now() - interval '24 hours')                        as changes_24h,
+    (select count(*) from public.stations)                                    as stations,
+    pg_size_pretty(pg_total_relation_size('public.price_changes'))            as price_table_size;
