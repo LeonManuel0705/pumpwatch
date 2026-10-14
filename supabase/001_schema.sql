@@ -48,7 +48,7 @@ create index if not exists idx_poll_log_time on public.poll_log (started_at desc
 
 create table if not exists public.pending_request (
     id         boolean primary key default true check (id),
-    request_id bigint not null,
+    request_id bigint,
     region     text not null,
     sent_at    timestamptz not null default now()
 );
@@ -67,3 +67,5 @@ create policy "public read prices" on public.price_changes for select using (tru
 
 drop policy if exists "public read state" on public.station_state;
 create policy "public read state" on public.station_state for select using (true);
+
+grant select on public.stations, public.price_changes, public.station_state to anon, authenticated;

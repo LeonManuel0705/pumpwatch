@@ -4,6 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from pumpwatch.collector import MIN_REQUEST_SPACING_SECONDS
 from pumpwatch.config import Settings
 from pumpwatch.storage import Storage
 
@@ -25,7 +26,8 @@ def main() -> None:
         first = datetime.fromtimestamp(row[0], timezone.utc)
         last = datetime.fromtimestamp(row[1], timezone.utc)
         days = max((row[1] - row[0]) / 86400, 1 / 24)
-        expected = int(days * 24 * 60 / max(len(settings.regions), 1))
+        spacing = max(settings.poll_interval_seconds, MIN_REQUEST_SPACING_SECONDS)
+        expected = int(days * 86400 / spacing)
         coverage = 100 * stats["polls"] / expected if expected else 0
         print(f"covering      {first:%Y-%m-%d %H:%M} to {last:%Y-%m-%d %H:%M} UTC ({days:.1f} days)")
         print(f"completeness  {coverage:.1f}% of expected polls")

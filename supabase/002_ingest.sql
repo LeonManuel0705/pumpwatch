@@ -8,16 +8,22 @@ returns integer language sql immutable as $$
     end;
 $$;
 
-create or replace function public.ingest_stations(payload jsonb, region text default 'default')
-returns integer language plpgsql security definer set search_path = public as $$
+drop function if exists public.ingest_stations(jsonb, text);
+
+create or replace function public.ingest_stations(
+    payload jsonb,
+    region text default 'default',
+    p_observed_at timestamptz default now()
+) returns integer language plpgsql security definer set search_path = public as $$
 declare
     v_changes integer := 0;
     v_count   integer := 0;
-    v_now     timestamptz := now();
+    v_now     timestamptz := p_observed_at;
 begin
     if payload is null or jsonb_typeof(payload -> 'stations') is distinct from 'array' then
         insert into poll_log (region, started_at, ok, error)
-        values (region, v_now, false, 'payload had no stations array');
+        values (region, v_now, false,
+                coalesce('API: ' || (payload ->> 'message'), 'payload had no stations array'));
         return 0;
     end if;
 
@@ -92,6 +98,8 @@ begin
 end;
 $$;
 
+revoke execute on function public.ingest_stations(jsonb, text, timestamptz) from public, anon, authenticated;
+
 create or replace view public.collector_health as
 with recent as (
     select * from public.poll_log where started_at > now() - interval '24 hours'
@@ -105,3 +113,5 @@ select
       where observed_at > now() - interval '24 hours')                        as changes_24h,
     (select count(*) from public.stations)                                    as stations,
     pg_size_pretty(pg_total_relation_size('public.price_changes'))            as price_table_size;
+
+grant select on public.collector_health to anon, authenticated;

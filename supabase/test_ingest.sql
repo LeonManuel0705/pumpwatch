@@ -1,16 +1,6 @@
 \set ON_ERROR_STOP on
 \pset pager off
 
-create or replace function assert_eq(actual anyelement, expected anyelement, label text)
-returns void language plpgsql as $$
-begin
-    if actual is distinct from expected then
-        raise exception 'FAIL % : expected %, got %', label, expected, actual;
-    end if;
-    raise notice '  ok  % (%)', label, actual;
-end;
-$$;
-
 truncate price_changes, station_state, stations, poll_log restart identity cascade;
 
 select assert_eq(
@@ -71,5 +61,24 @@ select assert_eq((select count(*)::integer from price_changes
 
 select assert_eq(ingest_stations('{"ok":false}'::jsonb, 'test'), 0, 'malformed payload is survived');
 select assert_eq((select count(*)::integer from poll_log where ok = false), 1, 'failure is logged');
+
+select assert_eq(ingest_stations('{"ok":false,"status":"error","message":"Rate limit exceeded"}'::jsonb, 'test'),
+    0, 'an API error is survived');
+select assert_eq((select error from poll_log order by id desc limit 1),
+    'API: Rate limit exceeded', 'the API message is kept for the log');
+
+select assert_eq(
+    ingest_stations('{"ok":true,"stations":[
+        {"id":"22222222-2222-2222-2222-222222222222","name":"Aral","brand":"ARAL",
+         "street":"Zeppelin","houseNumber":"10","postCode":14471,"place":"Potsdam",
+         "lat":52.39,"lng":13.06,"isOpen":true,"e5":2.179,"e10":false,"diesel":2.239}
+    ]}'::jsonb, 'test', '2026-10-14 07:03:21+02'),
+    1, 'an explicit observation time is accepted');
+select assert_eq((select count(*)::integer from price_changes
+                  where station_id = '22222222-2222-2222-2222-222222222222'
+                    and observed_at = '2026-10-14 07:03:21+02'),
+    1, 'the change carries the observation time, not the ingest time');
+select assert_eq((select started_at from poll_log order by id desc limit 1),
+    '2026-10-14 07:03:21+02'::timestamptz, 'the poll is logged at the observation time');
 
 select '', 'all ingest checks passed' as result;

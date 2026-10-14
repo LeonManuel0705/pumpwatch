@@ -19,7 +19,7 @@ class Region:
 class Settings:
     api_key: str
     db_path: Path = DEFAULT_DB_PATH
-    poll_interval_seconds: int = 60
+    poll_interval_seconds: int = 300
     request_timeout_seconds: int = 30
     regions: tuple[Region, ...] = field(
         default_factory=lambda: (Region("werder-potsdam", 52.3785, 12.9337),)
@@ -41,7 +41,7 @@ class Settings:
             regions = tuple(Region(**entry) for entry in raw)
 
         db_path = Path(os.environ.get("PUMPWATCH_DB", DEFAULT_DB_PATH))
-        interval = int(os.environ.get("PUMPWATCH_INTERVAL", "60"))
+        interval = int(os.environ.get("PUMPWATCH_INTERVAL", "300"))
         return cls(
             api_key=api_key,
             db_path=db_path,

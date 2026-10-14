@@ -8,7 +8,7 @@ from .storage import Storage
 
 log = logging.getLogger(__name__)
 
-MIN_REQUEST_SPACING_SECONDS = 60
+MIN_REQUEST_SPACING_SECONDS = 300
 MAX_BACKOFF_SECONDS = 900
 
 StationState = tuple[int | None, int | None, int | None, int]

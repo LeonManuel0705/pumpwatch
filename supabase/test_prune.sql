@@ -1,14 +1,8 @@
 \set ON_ERROR_STOP on
 \pset pager off
 
-create schema if not exists net;
-create unlogged table if not exists net._http_response (
-    id bigint primary key,
-    status_code integer,
-    content text,
-    created timestamptz not null default now()
-);
 truncate net._http_response;
+truncate pending_request;
 
 insert into net._http_response (id, status_code, content, created) values
     (1, 200, '{}', now() - interval '3 hours'),
@@ -17,9 +11,15 @@ insert into net._http_response (id, status_code, content, created) values
     (4, 200, '{}', now() - interval '4 minutes'),
     (5, 200, '{}', now());
 
-select assert_eq(public.prune_http_responses(), 3, 'deletes only responses older than ten minutes');
-select assert_eq((select count(*)::integer from net._http_response), 2, 'recent responses survive');
-select assert_eq(public.prune_http_responses('0 minutes'), 2, 'an explicit interval is honoured');
+insert into pending_request (id, request_id, region) values (true, 2, 'test');
+
+select assert_eq(public.prune_http_responses(), 2, 'deletes only responses older than ten minutes');
+select assert_eq((select count(*)::integer from net._http_response where id = 2), 1,
+    'the response still waiting to be ingested survives');
+select assert_eq((select count(*)::integer from net._http_response), 3, 'recent responses survive');
+
+update pending_request set request_id = null;
+select assert_eq(public.prune_http_responses('0 minutes'), 3, 'an explicit interval is honoured');
 select assert_eq(public.prune_http_responses(), 0, 'pruning an empty table is a no-op');
 
 drop table net._http_response;
