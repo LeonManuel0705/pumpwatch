@@ -8,6 +8,8 @@ returns integer language sql immutable as $$
     end;
 $$;
 
+revoke execute on function public.price_field(jsonb, text) from public, anon, authenticated;
+
 drop function if exists public.ingest_stations(jsonb, text);
 
 create or replace function public.ingest_stations(
@@ -114,4 +116,5 @@ select
     (select count(*) from public.stations)                                    as stations,
     pg_size_pretty(pg_total_relation_size('public.price_changes'))            as price_table_size;
 
+revoke all on public.collector_health from anon, authenticated;
 grant select on public.collector_health to anon, authenticated;

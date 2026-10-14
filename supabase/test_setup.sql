@@ -11,6 +11,10 @@ begin
 end;
 $$;
 
+alter default privileges in schema public grant all on tables to anon, authenticated;
+alter default privileges in schema public grant all on sequences to anon, authenticated;
+alter default privileges in schema public grant all on functions to anon, authenticated;
+
 create schema if not exists net;
 
 create table if not exists net._http_response (

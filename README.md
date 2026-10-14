@@ -104,9 +104,10 @@ that has to stay awake, and a front end can read the data directly: a SQLite fil
 a home router is unreachable, a Supabase table is not.
 
 1. Create a free Supabase project in the Frankfurt region.
-2. Add three lines to `.env` next to the Tankerkönig key: `SUPABASE_DB_URL` (the session
-   pooler connection string from the project's Connect dialog, which works over IPv4),
-   `SUPABASE_URL` and `SUPABASE_ANON_KEY` (the publishable key).
+2. Add four lines to `.env` next to the Tankerkönig key: `SUPABASE_DB_URL` (the session
+   pooler connection string from the project's Connect dialog, which works over IPv4; its
+   `[YOUR-PASSWORD]` placeholder can stay), `SUPABASE_DB_PASSWORD`, `SUPABASE_URL` and
+   `SUPABASE_ANON_KEY` (the publishable key).
 3. Run `scripts/supabase_setup.sh`. It applies the files below in order and stores the API
    key in Supabase Vault, read from the environment so it never appears in a file or a
    command line. Running it again is safe.
@@ -133,8 +134,10 @@ manual run or a duplicated cron job cannot push the key over the limit.
 every function by default, and Supabase hands its publishable key to anyone who loads a
 front end. Without an explicit revoke, that key could call `collect_prices()` in a loop
 until Tankerkönig blocks the API key, or call `ingest_stations()` with invented prices.
-Both are revoked from `anon` and `authenticated`; the public can read stations, prices and
-the health view, nothing else.
+Both are revoked from `anon` and `authenticated`. Supabase also grants those roles every
+privilege on every new table; row level security blocks the writes, but the grants are
+revoked as well, so one forgotten policy cannot open a table. The public can read
+stations, prices and the health view, nothing else.
 
 **Free projects pause after a week without user activity**, and whether pg_cron's own
 traffic counts is not documented. A paused project stops collecting silently. The
@@ -152,7 +155,9 @@ Two things keep this inside the free tier:
   records that in `poll_log` rather than raising, so one permission problem cannot leave
   the cron job failing silently forever.
 - **Only changes are stored.** A few hundred changed rows a day plus 288 poll log rows
-  works out well under 100 MB a year, against a 500 MB database limit.
+  works out well under 100 MB a year, against a 500 MB database limit. pg_cron also keeps
+  a row for every run, about 430 a day, so a nightly job deletes run history older than
+  two weeks; `poll_log` already holds everything the analysis needs.
 
 `scripts/test_supabase.sh` starts a throwaway local Postgres, stubs pg_net and Vault, and
 runs the ingest, collector and pruning checks against it, including the privilege
@@ -186,9 +191,9 @@ be queried in one statement.
 ## Status
 
 The collector, the Supabase job and the importer are written and tested. Continuous
-collection starts with the Supabase project; the analysis in question one onward needs
-several weeks of accumulated data before it says anything, which is the nature of the
-object being studied.
+collection has been running in Supabase since 14 October 2026, covering 80 stations. The
+analysis in question one onward needs several weeks of accumulated data before it says
+anything, which is the nature of the object being studied.
 
 ## Attribution
 

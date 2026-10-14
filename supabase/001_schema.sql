@@ -68,4 +68,7 @@ create policy "public read prices" on public.price_changes for select using (tru
 drop policy if exists "public read state" on public.station_state;
 create policy "public read state" on public.station_state for select using (true);
 
+revoke all on public.stations, public.station_state, public.price_changes,
+              public.poll_log, public.pending_request from anon, authenticated;
+revoke all on sequence public.poll_log_id_seq from anon, authenticated;
 grant select on public.stations, public.price_changes, public.station_state to anon, authenticated;

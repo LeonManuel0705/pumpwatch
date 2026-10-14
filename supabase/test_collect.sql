@@ -93,4 +93,12 @@ select assert_eq(has_function_privilege('anon', 'public.prune_http_responses(int
 select assert_eq(has_table_privilege('anon', 'public.collector_health', 'select'),
     true, 'anon can read the health view for the watchdog');
 
+select assert_eq(has_table_privilege('anon', 'public.poll_log', 'insert'), false, 'anon cannot write the poll log');
+select assert_eq(has_table_privilege('anon', 'public.pending_request', 'select'), false, 'anon cannot see the pending request');
+select assert_eq(has_table_privilege('anon', 'public.price_changes', 'insert,update,delete,truncate'),
+    false, 'anon cannot alter prices');
+select assert_eq(has_table_privilege('anon', 'public.price_changes', 'select'), true, 'anon can read prices');
+select assert_eq(has_table_privilege('anon', 'public.stations', 'select'), true, 'anon can read stations');
+select assert_eq(has_sequence_privilege('anon', 'public.poll_log_id_seq', 'usage'), false, 'anon cannot use the poll log sequence');
+
 select 'all collector checks passed' as result;
